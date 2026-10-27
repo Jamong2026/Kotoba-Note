@@ -13,10 +13,10 @@ const getJSON=u=>fetch(u).then(r=>{if(!r.ok)throw new Error(u);return r.json()})
 const unz=b64=>new Response(new Blob([Uint8Array.from(atob(b64),c=>c.charCodeAt(0))]).stream().pipeThrough(new DecompressionStream('gzip'))).text().then(JSON.parse);
 const getData=name=>window.__kdz&&window.__kdz[name]?unz(window.__kdz[name]):window.STANDALONE?new Promise((res,rej)=>{const k=window.__kd=window.__kd||{};if(k[name])return res(k[name]);const el=document.createElement('script');el.src='words/'+name+'.js';el.onload=()=>k[name]?res(k[name]):rej(new Error(name));el.onerror=rej;document.head.appendChild(el)}):getJSON('words/'+name+'.json');
 function loadData(){DB.err=false;
-  Promise.all(LV.map(n=>getData('n'+n)).concat(getData('kanji'),getData('kinfo'))).then(res=>{
+  Promise.all(LV.map(n=>getData('n'+n)).concat(getData('kanji'),getData('kinfo'),getData('rel'))).then(res=>{
     LV.forEach((n,i)=>{DB.lv[n]=res[i].map(r=>({id:'w'+r[0],lv:n,jp:r[1],kana:r[2],ko:r[3],p:r[4],ex:r[5],exk:r[6],exko:r[7],hw:r[8],c:r[9]}));
       DB.lv[n].forEach(w=>DB.map.set(w.id,w));DB.total+=DB.lv[n].length});
-    DB.kanji=res[5];DB.kinfo=res[6];DB.ready=true;render()}).catch(()=>{DB.err=true;render()})}
+    DB.kanji=res[5];DB.kinfo=res[6];DB.rel=res[7];DB.ready=true;render()}).catch(()=>{DB.err=true;render()})}
 const byId=id=>DB.map.get(id)||S.my.find(w=>w.id===id);
 const ws=id=>S.w[id]||{b:0,d:0,m:0};
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -254,7 +254,13 @@ function vCDrill(s){const q=s.qs[s.i],done=s.sel!==null,w=q.w;
 const inBook=id=>S.book.includes(id);
 const cardTop=w=>'<div class="cardtop"><span class="small muted">'+[w.lv?'JLPT N'+w.lv:'문법 예문 단어',w.p].filter(Boolean).join(' · ')+'</span><span class="topbtns"><button class="savebtn" data-a="book" data-v="'+esc(w.id)+'" aria-pressed="'+inBook(w.id)+'">'+(inBook(w.id)?'단어장에 저장됨':'단어장에 저장')+'</button><button class="savebtn quietb" data-a="fopen" data-v="'+esc(w.id)+'" aria-expanded="'+(V.fp===w.id)+'">폴더</button><button class="savebtn quietb" data-a="report" data-v="w:'+esc(w.id)+'">신고</button></span></div>'+folderPanel(w.id);
 function detail(w){return '<p class="reading" lang="ja">'+esc(w.kana)+'</p><p class="meaning">'+esc(w.ko)+'</p>'+
-  hanja(w)+conjHTML(w)+exHTML(w)+spk(w.ex?plain(w.ex):w.jp)+memoHTML(w)}
+  hanja(w)+conjHTML(w)+exHTML(w)+spk(w.ex?plain(w.ex):w.jp)+relHTML(w)+memoHTML(w)}
+const RELT={a:'반의어',s:'유의어 · 차이',c:'헷갈리는 단어',v:'자동사 · 타동사 짝',h:'읽기가 같은 단어'};
+function relHTML(w){const R=DB.rel&&DB.rel.r[w.id];if(!R)return'';const by={};R.forEach(x=>(by[x[0]]=by[x[0]]||[]).push(x));
+  const chip=id=>{const o=byId(id);return o?'<button class="rchip" data-a="card1" data-v="'+id+'"><span class="jp" lang="ja">'+esc(o.jp)+'</span><span class="small muted" lang="ja">'+(o.kana!==o.jp?esc(o.kana):'')+'</span><span class="small">'+esc(o.ko.split(', ')[0])+'</span></button>':''};
+  const grp=t=>{const xs=by[t];if(t==='a'||t==='h'){const ids=[...new Set(xs.flatMap(x=>x[1]))];let note='';if(t==='h'){const same=ids.some(id=>{const o=byId(id);return o&&o.ko.split(', ')[0]===w.ko.split(', ')[0]});note=same?'읽기가 같은 단어입니다. 뜻이 같은 것은 같은 말의 다른 표기입니다.':'읽기는 같고 한자와 뜻이 다릅니다. 듣기만으로는 문맥으로 구별합니다.'}return (note?'<p class="cnote">'+note+'</p>':'')+'<div class="rchips">'+ids.map(chip).join('')+'</div>'}
+    return xs.map(x=>(x[2]>=0?'<p class="cnote">'+esc(DB.rel.n[x[2]])+'</p>':'')+'<div class="rchips">'+x[1].map(chip).join('')+'</div>').join('')};
+  return '<div class="rel"><h3>관련 단어</h3>'+['a','s','c','v','h'].filter(t=>by[t]).map(t=>'<div class="relg"><span class="rlab">'+RELT[t]+'</span>'+grp(t)+'</div>').join('')+'</div>'}
 
 function pickOther(pool,field,ans){const out=new Set();let guard=0;
   while(out.size<3&&guard++<200){const v=pool[Math.floor(Math.random()*pool.length)][field];if(v!==ans)out.add(v)}return[...out]}
@@ -265,7 +271,7 @@ function makeQ(id,mode){const w=byId(id);let m=mode||'mix';
   if(m==='listen'){const opts=shuffle(pickOther(DB.lv[w.lv||5],'ko',w.ko).concat(w.ko));return{type:'listen',opts,ans:opts.indexOf(w.ko)}}
   const type=(w.kana!==w.jp&&Math.random()<.5)?'kana':'ko';
   const opts=shuffle(pickOther(DB.lv[w.lv||5],type,w[type]).concat(w[type]));return{type,opts,ans:opts.indexOf(w[type])}}
-function open(scr){V.stack.push(scr);render(true)}
+function open(scr){const t=V.stack[V.stack.length-1];if(t)t.sy=scrollY;else V.sy0=scrollY;V.stack.push(scr);render(true)}
 function startQuiz(ids,mode){if(!ids.length||!DB.ready)return;ids=shuffle(ids);mode=mode||'mix';const q=makeQ(ids[0],mode);open({type:'quiz',mode,ids,i:0,right:0,wrong:[],sel:null,q});if(q.type==='listen')speak(byId(ids[0]).kana)}
 function startPractice(id){const L=LESSONS.find(l=>l.id===id);const p={type:'practice',L,qs:lessonQs(L),i:0,right:0,sel:null};setupP(p);open(p)}
 function setupP(p){const q=p.qs[p.i];p.sel=null;p.checked=false;p.ok=false;
@@ -546,7 +552,7 @@ function render(top){const s=V.stack[V.stack.length-1];let body;
   if(s&&!DB.ready&&!['lesson','practice','result','settings','stats','report','display','clesson'].includes(s.type)){V.stack=[];return render(true)}
   if(!s)body=V.tab==='home'?vHome():V.tab==='vocab'?vVocab():V.tab==='kanji'?vKanji():vGrammar();
   else body={level:vLevel,deck:vDeck,cards:vCards,quiz:vQuiz,result:vResult,lesson:vLesson,practice:vPractice,report:vReport,settings:vSettings,display:vDisplay,clesson:vCLesson,cdrill:vCDrill,stats:vStats,exam:vExam,kanji:vKanjiCard}[s.type](s);
-  app.innerHTML='<header class="top">'+(s?'<button class="back" data-a="back">‹ 뒤로</button>':'<span class="brand" lang="ja">ことばノート<small lang="ko">JLPT N5–N1 · 한국어 화자용</small></span>')+(s&&(s.type==='display'||s.type==='settings')?'':'<button class="aa" data-a="display" aria-label="화면 설정: 글자 크기와 배경 테마">Aa</button>')+'</header>'+flash()+body;
+  app.innerHTML='<header class="top">'+(s?'<button class="back" data-a="back">‹ 뒤로</button>':'<span class="brand" lang="ja">ことばノート<small lang="ko">JLPT N5–N1 · 한국어 화자용</small></span>')+(s&&(s.type==='display'||s.type==='settings')?'':'<button class="aa" data-a="display" aria-label="화면 설정: 글자 크기와 배경 테마">Aa</button>')+'</header>'+flash()+body+(s&&!['quiz','practice','cdrill','exam','result'].includes(s.type)?'<button class="btn quiet backbtm" data-a="back">‹ 뒤로</button>':'');
   ['home','vocab','kanji','grammar'].forEach(t=>{const b=document.getElementById('tab-'+t);if(V.tab===t)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current')});
   if(top)window.scrollTo(0,0)}
 
@@ -564,7 +570,9 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-a]');if(!b
   switch(a){
   case 'tab':if(v==='book'){V.tab='vocab';V.vm='book'}else V.tab=v;V.stack=[];render(true);break;
   case 'vm':V.tab='vocab';V.vm=v;V.stack=[];render(true);break;
-  case 'back':V.stack.pop();render(true);break;
+  case 'back':{const prev=V.stack.pop();render(true);const cur=V.stack[V.stack.length-1];window.scrollTo(0,cur?cur.sy||0:V.sy0||0);
+    const id=prev&&(prev.type==='cards'?prev.ids[prev.i]:prev.type==='kanji'?prev.c:prev.type==='lesson'?prev.id:prev.type==='clesson'?prev.key:null);
+    if(id){const el=[...document.querySelectorAll('.list [data-v],.kgrid [data-v]')].find(e=>e.dataset.v===id);if(el){el.scrollIntoView({block:'center'});el.classList.add('backhl');setTimeout(()=>el.classList.remove('backhl'),1800)}}break}
   case 'reload':loadData();render();break;
   case 'setlv':S.lv=+v;save();render();break;
   case 'today':startQuiz(todayIds());break;
